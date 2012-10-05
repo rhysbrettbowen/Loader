@@ -53,3 +53,7 @@ Loader.instantiate(app.myClass, myModel);
 If you have used goog.addSingletonGetter then the dependancy will be the singleton.
 
 You can also register an object rather than a constructor function if you want the same instance used (which means you can just add in the object once instead of using addSingletonGetter).
+
+If you need to pass in a function that another module want to use with the 'new' keyword then you can make it instantiatable before passing it in like so:
+
+var instantiatableClass = Loader.makeInstantiatable(myClass);
