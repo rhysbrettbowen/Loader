@@ -41,10 +41,10 @@ Now when you want to create a new app.myClass:
 Loader.instantiate(app.myClass);
 ```
 
-and the mediator will be injected. You can also still pass in normal arguments like so:
+and the mediator will be injected. You can also still pass in normal arguments after the dependencies like so:
 
 ```javascript
-app.myClass = function(model, mediator) {};
+app.myClass = function(mediator, model) {};
 
 // you can instantiate like this:
 Loader.instantiate(app.myClass, myModel);
