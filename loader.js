@@ -1,16 +1,28 @@
-goog.provide('Loader');
+goog.provide('Ldr');
 
 goog.require('goog.array');
 
-Loader.Depends = {};
+Ldr.Depends = {};
 
 
-Loader.reg = function(name, type) {
-  Loader.Depends[name] = {
+Ldr.reg = function(name, type) {
+  Ldr.Depends[name] = {
     type: type
   };
-  goog.array.forEach(goog.array.clone(Loader.Waiting), function(waiter) {
-    if (Loader.test(waiter.type))
+  goog.array.forEach(goog.array.clone(Ldr.Waiting), function(waiter) {
+    if (Ldr.test(waiter.type))
+      waiter.run();
+  });
+};
+
+
+Ldr.regConst = function(name, type) {
+  Ldr.Depends[name] = {
+    type: type,
+    con: true
+  };
+  goog.array.forEach(goog.array.clone(Ldr.Waiting), function(waiter) {
+    if (Ldr.test(waiter.type))
       waiter.run();
   });
 };
@@ -23,29 +35,29 @@ Loader.reg = function(name, type) {
  * @param {Object|Function} type to register
  * @param {...*} var_args to pass to object
  */
-Loader.regSingle = function(name, type, var_args) {
+Ldr.regSingle = function(name, type, var_args) {
   var args = goog.array.slice(arguments, 1);
-  Loader.Depends[name] = {
+  Ldr.Depends[name] = {
     type: type,
     inst: null
   };
-  var ret = Loader.instSoon.apply(null, args).next(function(inst) {
-    Loader.Depends[name].inst = inst;
+  var ret = Ldr.instSoon.apply(null, args).next(function(inst) {
+    Ldr.Depends[name].inst = inst;
   });
-  goog.array.forEach(goog.array.clone(Loader.Waiting), function(waiter) {
-    if (Loader.test(waiter.type))
+  goog.array.forEach(goog.array.clone(Ldr.Waiting), function(waiter) {
+    if (Ldr.test(waiter.type))
       waiter.run();
   });
   return ret;
 };
 
 
-Loader.Waiting = [];
+Ldr.Waiting = [];
 
 
-Loader.get = function(name) {
-  return Loader.Depends[name] &&
-      (Loader.Depends[name].inst || Loader.Depends[name].type);
+Ldr.get = function(name) {
+  return Ldr.Depends[name] &&
+      (Ldr.Depends[name].inst || Ldr.Depends[name].type);
 };
 
 
@@ -54,9 +66,9 @@ Loader.get = function(name) {
  *
  * @param {Function} type the constructor function
  */
-Loader.instify = function(type) {
+Ldr.instify = function(type) {
   return function() {
-    return Loader.inst.apply(null, goog.array.concat(
+    return Ldr.inst.apply(null, goog.array.concat(
       [type], goog.array.clone(arguments)));
   };
 };
@@ -68,28 +80,31 @@ Loader.instify = function(type) {
  * @param {...*} var_args other arguments
  * @return {*}
  */
-Loader.inst = function(type, var_args) {
+Ldr.inst = function(type, var_args) {
   if (type.getInstance)
     return type.getInstance();
   if (!goog.isFunction(type))
-    if (goog.isString(type))
-      return Loader.inst(Loader.get(type));
-    else
+    if (goog.isString(type)) {
+      if (Ldr.Depends[type].con)
+        return Ldr.Depends[type].type;
+      return Ldr.inst(Ldr.get(type));
+    } else {
       return type;
+    }
   /** @constructor */
-  var Temp = function() {};
+  var LdrInst = function() {};
   goog.object.forEach(type, function(val, key) {
-    Temp[key] = val;
+    LdrInst[key] = val;
   });
-  Temp.prototype = type.prototype;
-  var ret = new Temp();
+  LdrInst.prototype = type.prototype;
+  var ret = new LdrInst();
   var args = goog.array.slice(arguments, 1);
   var depends = [];
   if(type.prototype.inject_) {
     depends = goog.array.map(
         type.prototype.inject_, function(inject) {
-          var type = Loader.get(inject);
-          return type ? Loader.inst(type) : undefined;
+          var type = Ldr.get(inject);
+          return type ? Ldr.inst(type) : undefined;
         });
   }
   goog.array.extend(depends, args);
@@ -98,14 +113,16 @@ Loader.inst = function(type, var_args) {
 };
 
 
-Loader.test = function(type) {
+Ldr.test = function(type) {
   if (goog.isString(type)) {
-    return Loader.test(Loader.get(type));
+    return Ldr.Depends[type] &&
+        Ldr.Depends[type].con ||
+        Ldr.test(Ldr.get(type));
   }
   if (!goog.isFunction(type))
     return !!type;
   if (type.prototype.inject_)
-    return goog.array.every(type.prototype.inject_, Loader.test);
+    return goog.array.every(type.prototype.inject_, Ldr.test);
   return true;
 }
 
@@ -117,7 +134,7 @@ Loader.test = function(type) {
  * @param {Array|Object|string|Function} type to instantiate
  * @param {...*} var_args arguments to instantiate with
  */
-Loader.instSoon = function(type, var_args) {
+Ldr.instSoon = function(type, var_args) {
   if (!goog.isArray(type))
     type = [type];
   var next = [];
@@ -129,13 +146,13 @@ Loader.instSoon = function(type, var_args) {
     run: function() {ret.next(goog.nullFunction);}
   };
   ret.next = function(fn) {
-    if (!inst && goog.array.every(/** @type {Array} */(type), Loader.test))
+    if (!inst && goog.array.every(/** @type {Array} */(type), Ldr.test))
       inst = goog.array.map(/** @type {Array} */(type), function(type) {
-        return Loader.inst.apply(null,
+        return Ldr.inst.apply(null,
             goog.array.concat([type], args));
       });
     if(inst) {
-      goog.array.remove(Loader.Waiting, waiter);
+      goog.array.remove(Ldr.Waiting, waiter);
       next.push(fn);
       goog.array.forEach(next, function(fn) {
         fn.apply(null, inst);
@@ -146,6 +163,6 @@ Loader.instSoon = function(type, var_args) {
     }
     return ret;
   };
-  Loader.Waiting.push(waiter);
+  Ldr.Waiting.push(waiter);
   return ret;
 };
