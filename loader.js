@@ -103,6 +103,8 @@ Ldr.inst = function(type, var_args) {
   if(type.prototype.inject_) {
     depends = goog.array.map(
         type.prototype.inject_, function(inject) {
+          if (Ldr.Depends[inject] && Ldr.Depends[inject].con)
+            return Ldr.Depends[inject].type;
           var type = Ldr.get(inject);
           return type ? Ldr.inst(type) : undefined;
         });
