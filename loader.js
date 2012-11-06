@@ -9,10 +9,7 @@ Ldr.reg = function(name, type) {
   Ldr.Depends[name] = {
     type: type
   };
-  goog.array.forEach(goog.array.clone(Ldr.Waiting), function(waiter) {
-    if (Ldr.test(waiter.type))
-      waiter.run();
-  });
+  Ldr.checkWaiting();
 };
 
 
@@ -21,10 +18,7 @@ Ldr.regConst = function(name, type) {
     type: type,
     con: true
   };
-  goog.array.forEach(goog.array.clone(Ldr.Waiting), function(waiter) {
-    if (Ldr.test(waiter.type))
-      waiter.run();
-  });
+  Ldr.checkWaiting();
 };
 
 
@@ -44,11 +38,17 @@ Ldr.regSingle = function(name, type, var_args) {
   var ret = Ldr.instSoon.apply(null, args).next(function(inst) {
     Ldr.Depends[name].inst = inst;
   });
-  goog.array.forEach(goog.array.clone(Ldr.Waiting), function(waiter) {
-    if (Ldr.test(waiter.type))
-      waiter.run();
-  });
+  Ldr.checkWaiting();
   return ret;
+};
+
+Ldr.checkWaiting = function() {
+  goog.array.forEach(goog.array.clone(Ldr.Waiting), function(waiter) {
+    if (Ldr.test(waiter.type[0])) {
+      goog.array.remove(Ldr.Waiting, waiter);
+      waiter.run();
+    }
+  });
 };
 
 
@@ -56,6 +56,13 @@ Ldr.Waiting = [];
 
 
 Ldr.get = function(name) {
+  if (Ldr.Depends[name] && goog.isDef(Ldr.Depends[name].inst) &&
+      !Ldr.Depends[name].inst && Ldr.test(Ldr.Depends[name].type)) {
+    goog.array.find(Ldr.Waiting, function(wait) {
+      return wait.type[0] == Ldr.Depends[name].type;
+    }).run();
+  };
+
   return Ldr.Depends[name] &&
       (Ldr.Depends[name].inst || Ldr.Depends[name].type);
 };
@@ -97,6 +104,7 @@ Ldr.inst = function(type, var_args) {
     LdrInst[key] = val;
   });
   LdrInst.prototype = type.prototype;
+  LdrInst.superClass_ = type;
   var ret = new LdrInst();
   var args = goog.array.slice(arguments, 1);
   var depends = [];
@@ -117,11 +125,11 @@ Ldr.inst = function(type, var_args) {
 
 Ldr.test = function(type) {
   if (goog.isString(type)) {
-    return Ldr.Depends[type] &&
-        Ldr.Depends[type].con ||
-        Ldr.test(Ldr.get(type));
-  }
-  if (!goog.isFunction(type))
+    return !!(Ldr.Depends[type] &&
+        (Ldr.Depends[type].con ||
+        Ldr.Depends[type].inst ||
+        Ldr.test(Ldr.Depends[type].type)));
+  } else if (!goog.isFunction(type))
     return !!type;
   if (type.prototype.inject_)
     return goog.array.every(type.prototype.inject_, Ldr.test);
