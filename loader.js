@@ -1,3 +1,23 @@
+/*******************************************************************************
+********************************************************************************
+**                                                                            **
+**  Copyright (c) 2012 Catch.com, Inc.                                        **
+**                                                                            **
+**  Licensed under the Apache License, Version 2.0 (the "License");           **
+**  you may not use this file except in compliance with the License.          **
+**  You may obtain a copy of the License at                                   **
+**                                                                            **
+**      http://www.apache.org/licenses/LICENSE-2.0                            **
+**                                                                            **
+**  Unless required by applicable law or agreed to in writing, software       **
+**  distributed under the License is distributed on an "AS IS" BASIS,         **
+**  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  **
+**  See the License for the specific language governing permissions and       **
+**  limitations under the License.                                            **
+**                                                                            **
+********************************************************************************
+*******************************************************************************/
+
 goog.provide('Ldr');
 
 goog.require('goog.array');
@@ -31,6 +51,7 @@ Ldr.regConst = function(name, type) {
  */
 Ldr.regSingle = function(name, type, var_args) {
   var args = goog.array.slice(arguments, 1);
+  args[0] = name;
   Ldr.Depends[name] = {
     type: type,
     inst: null
@@ -92,9 +113,18 @@ Ldr.inst = function(type, var_args) {
     return type.getInstance();
   if (!goog.isFunction(type))
     if (goog.isString(type)) {
-      if (Ldr.Depends[type].con)
-        return Ldr.Depends[type].type;
-      return Ldr.inst(Ldr.get(type));
+      if (Ldr.Depends[type].inst !== null) {
+        if (Ldr.Depends[type].con)
+          return Ldr.Depends[type].type;
+        return Ldr.inst(Ldr.get(type));
+      } else {
+        if (!goog.isFunction(Ldr.Depends[type].type)) {
+          Ldr.Depends[type].inst = Ldr.Depends[type].type;
+          return Ldr.Depends[type].inst;
+        }
+        var name = type;
+        type = Ldr.Depends[type].type;
+      }
     } else {
       return type;
     }
@@ -106,13 +136,17 @@ Ldr.inst = function(type, var_args) {
   LdrInst.prototype = type.prototype;
   LdrInst.superClass_ = type;
   var ret = new LdrInst();
+  if (name)
+    Ldr.Depends[name].inst = ret;
   var args = goog.array.slice(arguments, 1);
   var depends = [];
-  if(type.prototype.inject_) {
+  if(type.prototype && type.prototype.inject_) {
     depends = goog.array.map(
         type.prototype.inject_, function(inject) {
           if (Ldr.Depends[inject] && Ldr.Depends[inject].con)
             return Ldr.Depends[inject].type;
+          if (Ldr.Depends[inject] && Ldr.Depends[inject].inst === null)
+            return Ldr.inst(inject);
           var type = Ldr.get(inject);
           return type ? Ldr.inst(type) : undefined;
         });
@@ -123,16 +157,38 @@ Ldr.inst = function(type, var_args) {
 };
 
 
-Ldr.test = function(type) {
+/**
+ * @param {*} type
+ * @param {Array=} opt_singles
+ */
+Ldr.test = function(type, opt_singles) {
+  if (!goog.isArray(opt_singles))
+    opt_singles = [];
   if (goog.isString(type)) {
+    if (Ldr.Depends[type] && goog.isDef(Ldr.Depends[type].inst)) {
+      if (Ldr.Depends[type].inst !== null)
+        return true;
+      if (goog.array.contains(opt_singles, type))
+        return true;
+      if (!Ldr.Depends[type].type.prototype ||
+          !Ldr.Depends[type].type.prototype.inject_ ||
+          !Ldr.Depends[type].type.prototype.inject_.length)
+        return true;
+      opt_singles.push(type);
+      return goog.array.every(Ldr.Depends[type].type.prototype.inject_,
+          function(type) {
+            return Ldr.test(type, opt_singles.slice(0));
+          });
+    }
     return !!(Ldr.Depends[type] &&
         (Ldr.Depends[type].con ||
-        Ldr.Depends[type].inst ||
-        Ldr.test(Ldr.Depends[type].type)));
+        Ldr.test(Ldr.Depends[type].type, opt_singles.slice(0))));
   } else if (!goog.isFunction(type))
     return !!type;
-  if (type.prototype.inject_)
-    return goog.array.every(type.prototype.inject_, Ldr.test);
+  if (type.prototype && goog.isDef(type.prototype.inject_))
+    return goog.array.every(type.prototype.inject_, function(type) {
+      return Ldr.test(type, opt_singles.slice(0));
+    });
   return true;
 }
 
@@ -156,7 +212,9 @@ Ldr.instSoon = function(type, var_args) {
     run: function() {ret.next(goog.nullFunction);}
   };
   ret.next = function(fn) {
-    if (!inst && goog.array.every(/** @type {Array} */(type), Ldr.test))
+    if (!inst && goog.array.every(/** @type {Array} */(type), function(type) {
+        return Ldr.test(type);
+      }))
       inst = goog.array.map(/** @type {Array} */(type), function(type) {
         return Ldr.inst.apply(null,
             goog.array.concat([type], args));
